@@ -1,0 +1,3 @@
+# Local helper tools for M0 (run on your Mac, not in Docker)
+kaggle>=1.6
+duckdb>=1.1
