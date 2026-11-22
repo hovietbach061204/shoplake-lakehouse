@@ -1,3 +1,5 @@
 # Local helper tools for M0 (run on your Mac, not in Docker)
 kaggle>=1.6
+# kaggle 2.2.x imports `six` without declaring it as a dependency (upstream packaging bug)
+six
 duckdb>=1.1
