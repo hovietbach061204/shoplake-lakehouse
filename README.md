@@ -22,8 +22,8 @@ Spark and Trino share one copy of the data: each asks the REST catalog which met
 
 | # | What you build | Concepts | Status |
 | --- | --- | --- | --- |
-| M0 | Machine setup, dataset download, first look at the data | Idempotency, grain, watermark candidates | in progress |
-| M1 | MinIO + REST catalog + Trino; first Iceberg table by hand | Iceberg metadata tree, snapshots, time travel | |
+| M0 | Machine setup, dataset download, first look at the data | Idempotency, grain, watermark candidates | done |
+| M1 | MinIO + REST catalog + Trino; first Iceberg table by hand | Iceberg metadata tree, snapshots, time travel | in progress ([guide](docs/M1-storage-catalog-trino.md)) |
 | M2 | PySpark: landing CSV to bronze Iceberg | DataFrames, partitions, bronze layer | |
 | M3 | Daily replay, incremental loads, `MERGE INTO` | Watermarks, CoW vs MoR, partition evolution | |
 | M4 | dbt-trino silver layer with tests | Sources, `ref()`, data quality | |
@@ -36,7 +36,9 @@ Each milestone has a guide in [`docs/`](docs/). Start with [M0](docs/M0-setup.md
 ## Layout
 
 ```
-infra/     Docker Compose and service config (from M1)
+docker-compose.yml  All services (MinIO, Iceberg REST, Trino; more added later)
+infra/     Service config, e.g. infra/trino/catalog/ (from M1)
+sql/       Hand-written SQL exercises (from M1)
 spark/     PySpark jobs (from M2)
 dbt/       dbt project (from M4)
 airflow/   DAGs (from M6)
@@ -53,4 +55,16 @@ make check     # Docker resources and mounts
 make venv      # local helper tools
 make data      # download Olist into data/raw
 make explore   # profile the data with DuckDB
+
+make up        # start MinIO, Iceberg REST catalog, Trino (M1)
+make ps        # check they are healthy
+make m1-demo   # create a first Iceberg table, inspect snapshots and files
+make trino     # interactive Trino SQL shell
+make down      # stop (data kept); make reset wipes all data
 ```
+
+| UI | URL |
+| --- | --- |
+| MinIO console | http://localhost:9001 (admin / password) |
+| Trino web UI | http://localhost:8080 |
+| Iceberg REST catalog | http://localhost:8181/v1/namespaces |

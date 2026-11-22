@@ -1,0 +1,90 @@
+# ShopLake local lakehouse.
+# M1 services: object storage (MinIO), Iceberg REST catalog, Trino.
+# Spark (M2) and Airflow (M6) are added to this file in later milestones.
+#
+# Start:  docker compose up -d        Stop (keep data): docker compose down
+# Reset ALL data (buckets + catalog): docker compose down -v
+name: shoplake
+
+x-s3-credentials: &s3-credentials
+  AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+  AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+  AWS_REGION: ${AWS_REGION}
+
+services:
+  # --- Object storage: speaks the S3 API ---------------------------------
+  # MinIO stopped publishing official community images in 2025, so we use the
+  # community-maintained build of the same MinIO server (pgsty/minio):
+  # same binary, same S3 API, same `mc` client inside. Pinned to a release.
+  minio:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"   # S3 API (what Spark and Trino talk to)
+      - "9001:9001"   # Web console (what you open in the browser)
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot job: create the buckets, then exit. Safe to re-run (idempotent).
+  minio-init:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+        mc mb --ignore-existing local/landing &&
+        mc mb --ignore-existing local/warehouse &&
+        mc ls local
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    restart: "no"
+
+  # --- Iceberg REST catalog ----------------------------------------------
+  # Keeps, for every table, the pointer to its current metadata.json.
+  # Apache Iceberg's reference implementation; it stores those pointers in a
+  # SQLite file on a named volume so they survive restarts.
+  iceberg-rest:
+    image: apache/iceberg-rest-fixture:1.10.1
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *s3-credentials
+      CATALOG_URI: jdbc:sqlite:/home/iceberg/iceberg_catalog.db
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+    ports:
+      - "8181:8181"
+    volumes:
+      - catalog-data:/home/iceberg
+
+  # --- Trino: distributed SQL engine (one node acting as coordinator + worker)
+  trino:
+    image: trinodb/trino:484
+    depends_on:
+      - iceberg-rest
+    environment:
+      <<: *s3-credentials
+    ports:
+      - "8080:8080"   # Web UI + client endpoint
+    volumes:
+      - ./infra/trino/catalog:/etc/trino/catalog:ro
+    mem_limit: 3g     # the JVM sizes its heap from this limit
+
+volumes:
+  minio-data:
+  catalog-data:
