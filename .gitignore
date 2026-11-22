@@ -6,6 +6,8 @@ data/raw/*
 
 # Secrets and local settings
 .env
+.env.example
+shoplake-m0.bundle
 
 # Python
 __pycache__/
