@@ -1,4 +1,4 @@
-.PHONY: venv check data explore
+.PHONY: venv check data data-funnel explore
 
 # Which Python to use: the project's .venv if it exists, otherwise whatever
 # `python3` is active in your shell (e.g. an activated conda env).
@@ -13,6 +13,9 @@ check:           ## Check Docker/Colima resources and disk
 
 data:            ## Download the Olist dataset into data/raw
 	$(PYTHON) scripts/download_olist.py
+
+data-funnel:     ## Download the Olist marketing funnel dataset into data/raw
+	$(PYTHON) scripts/download_marketing_funnel.py
 
 explore:         ## Profile the raw CSVs with DuckDB
 	$(PYTHON) scripts/explore_olist.py
