@@ -1,6 +1,6 @@
 # ShopLake local lakehouse.
 # M1 services: object storage (MinIO), Iceberg REST catalog, Trino.
-# Spark (M2) and Airflow (M6) are added to this file in later milestones.
+# M2 adds Spark. Airflow (M6) is added in a later milestone.
 #
 # Start:  docker compose up -d        Stop (keep data): docker compose down
 # Reset ALL data (buckets + catalog): docker compose down -v
@@ -84,6 +84,24 @@ services:
     volumes:
       - ./infra/trino/catalog:/etc/trino/catalog:ro
     mem_limit: 3g     # the JVM sizes its heap from this limit
+
+  # --- Spark (PySpark), local mode: one container is driver + executors ---
+  # It idles until you submit a job:
+  #   docker compose exec spark spark-submit spark/jobs/bronze_ingest.py
+  spark:
+    build: ./spark                  # spark/Dockerfile = apache/spark + Iceberg/S3 jars
+    image: shoplake-spark:4.1.4
+    depends_on:
+      - iceberg-rest
+    entrypoint: ["sleep", "infinity"]
+    environment:
+      <<: *s3-credentials
+    ports:
+      - "4040:4040"   # Spark UI, only while a job is running
+    volumes:
+      - ./spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./spark/jobs:/opt/shoplake/spark/jobs:ro
+    mem_limit: 2500m
 
 volumes:
   minio-data:
