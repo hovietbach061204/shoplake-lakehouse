@@ -26,7 +26,7 @@ Spark and Trino share one copy of the data: each asks the REST catalog which met
 | M1 | MinIO + REST catalog + Trino; first Iceberg table by hand | Iceberg metadata tree, snapshots, time travel | done ([guide](docs/M1-storage-catalog-trino.md)) |
 | M2 | PySpark: landing CSV to bronze Iceberg | DataFrames, partitions, bronze layer | in progress ([guide](docs/M2-spark-bronze.md)) |
 | M3 | Daily replay, incremental loads, `MERGE INTO` | Watermarks, CoW vs MoR, partition evolution | |
-| M3b | Streaming: order events through Kafka into Iceberg (Iceberg Kafka Connect sink) | Commit interval vs freshness, exactly-once, small files, batch vs streaming | planned |
+| M3b | Streaming: Kafka topics → Iceberg tables, the open-source version of Confluent Tableflow (Iceberg Kafka Connect sink + compaction) | Exactly-once commits, freshness vs small files, schema evolution, compaction | planned ([plan](docs/M3b-kafka-to-iceberg-plan.md)) |
 | M4 | dbt-trino silver layer with tests | Sources, `ref()`, data quality | |
 | M5 | Gold star schema, SCD2 customers, marts | Star schema, grain, SCD2 | |
 | M6 | Airflow DAG + backfill | Data intervals, retries, idempotency | |
