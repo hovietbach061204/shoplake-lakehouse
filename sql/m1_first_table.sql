@@ -2,8 +2,9 @@
 -- Run with: docker compose exec -T trino trino < sql/m1_first_table.sql
 -- or open `docker compose exec trino trino` and paste statement by statement.
 
-CREATE SCHEMA IF NOT EXISTS iceberg.playground
+CREATE SCHEMA IF NOT EXISTS iceberg.playground -- Schema would be created in Trino
 WITH (location = 's3://warehouse/playground');
+-- s3://warehouse/playground is default storage location on MinIO. The names can differ from the schema name in Trino above.
 
 DROP TABLE IF EXISTS iceberg.playground.orders_demo;
 
@@ -55,3 +56,21 @@ FROM iceberg.playground."orders_demo$files";
 --   SELECT * FROM iceberg.playground.orders_demo FOR VERSION AS OF <snapshot_id>;
 --
 -- You should see o1 back as 'created': the table as it was before the UPDATE.
+
+CREATE SCHEMA IF NOT EXISTS iceberg.demo
+WITH (location = 's3://warehouse/custom');
+
+DROP TABLE IF EXISTS iceberg.demo.customers;
+
+
+CREATE TABLE iceberg.demo.customers (
+    customer_id              VARCHAR,
+    customer_name            VARCHAR,
+    dob                      DATE,
+    email                    VARCHAR,
+    country                  VARCHAR
+)
+WITH (
+    format = 'PARQUET',
+    partitioning = ARRAY['country']
+);
