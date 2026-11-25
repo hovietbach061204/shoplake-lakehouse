@@ -194,6 +194,80 @@ Exercises (5 minutes, worth it):
    You get maps like `{1=o1, 2=c1, 3=delivered, 4=2017-10-02 10:56:33}`. The keys are Iceberg **column ids**, not names (1 = order_id, ...). Ids are why renaming a column in Iceberg is safe: files refer to ids, never names.
    Those min/max values are what lets Trino skip whole files for `WHERE order_purchase_timestamp > ...`.
 
+## 5b. Behind the scenes: what happens for each statement
+
+Section 5 showed the files *after* the demo. This section shows **who does what, in which order**, for every statement in `sql/m1_first_table.sql`. I checked it by re-running the script and watching MinIO and the SQLite file.
+
+### Who's who
+
+| Name | What it is |
+| --- | --- |
+| `iceberg` (in `iceberg.playground.orders_demo`) | Trino's name for the connection config `infra/trino/catalog/iceberg.properties`. Not a folder anywhere |
+| Trino | The SQL engine. Reads and writes **data files and manifests** in MinIO directly |
+| iceberg-rest | The catalog service. Decides locations, owns the table pointers, writes **`metadata.json`** files |
+| SQLite (`/home/iceberg/iceberg_catalog.db`) | iceberg-rest's private storage: names + pointers only. Trino never talks to it |
+| MinIO bucket `warehouse` | All files: `metadata.json`, Avro manifests, Parquet data |
+| `playground` | A schema = a row in SQLite + a path prefix `warehouse/playground/` |
+| `orders_demo` | A table = a row in SQLite + a folder `playground/orders_demo-<uuid>/` |
+
+What SQLite actually contains after the demo (I opened the file):
+
+| Table | Row |
+| --- | --- |
+| `iceberg_namespace_properties` | `playground`, `location` = `s3://warehouse/playground` |
+| `iceberg_tables` | `playground`, `orders_demo`, `metadata_location` = `.../metadata/00002-....metadata.json`, `previous_metadata_location` = `.../00001-...` |
+
+### ① `CREATE SCHEMA IF NOT EXISTS iceberg.playground WITH (location = 's3://warehouse/playground')`
+1. Trino → iceberg-rest: "create namespace `playground` with this location".
+2. iceberg-rest → SQLite: insert into `iceberg_namespace_properties`.
+3. MinIO: **nothing**. A schema has no files, and S3 has no real folders. (This is why a schema pointing to a missing bucket "succeeds": nothing touches storage yet.)
+
+### ② `DROP TABLE IF EXISTS iceberg.playground.orders_demo`
+1. Trino → iceberg-rest: drop the table, with purge.
+2. iceberg-rest → SQLite: delete the `iceberg_tables` row.
+3. The old table's files in MinIO are deleted. On my test, `orders_demo-d19f...` disappeared and a new `orders_demo-a32b...` appeared after ③.
+
+### ③ `CREATE TABLE iceberg.playground.orders_demo (...) WITH (partitioning = ...)`
+1. Trino picks the location `s3://warehouse/playground/orders_demo-<new uuid>` and **checks in MinIO** that it is empty. This is the first storage access: with a missing bucket, it fails here.
+2. Trino → iceberg-rest: create the table with this schema and partition spec.
+3. iceberg-rest → MinIO: writes `metadata/00000-....metadata.json` (schema, partition spec, one empty snapshot).
+4. iceberg-rest → SQLite: inserts the `iceberg_tables` row pointing to `00000`.
+
+### ④ `INSERT INTO ... VALUES (3 rows)`
+1. Trino → iceberg-rest: "load table" (gets the current metadata).
+2. Trino → MinIO **directly**: writes 2 Parquet data files (one per partition day), a manifest `*-m0.avro` and a manifest list `snap-<id>-....avro`.
+3. Trino → iceberg-rest: "commit: add snapshot S1, *expecting* the current metadata to be `00000`".
+4. iceberg-rest → MinIO: writes `00001-....metadata.json`.
+5. iceberg-rest → SQLite: moves the pointer from `00000` to `00001`, **only if it is still `00000`**. This compare-and-swap is the atomic commit. If another writer committed first, the swap fails, nothing becomes visible, and Trino retries on top of the new state.
+
+### ⑤ `UPDATE ... SET order_status = 'delivered' WHERE order_id = 'o1'`
+1. Trino loads the table and **reads** the data files to find `o1`.
+2. Trino → MinIO directly: writes a **position-delete file** ("row 0 of file X is deleted") and a **new data file** with o1 = delivered, plus new manifests and a manifest list. The original Parquet file is not modified (merge-on-read).
+3. Commit exactly as in ④: iceberg-rest writes `00002-....metadata.json` and moves the SQLite pointer.
+
+### ⑥ `SELECT * FROM iceberg.playground.orders_demo`
+1. Trino → iceberg-rest: "load table". iceberg-rest reads the pointer from SQLite, reads `00002-....metadata.json` from MinIO and **returns its content** to Trino.
+2. Trino → MinIO directly: reads the manifest list, then the manifests (skipping files using partition values and min/max stats), then the Parquet files, and applies the delete file.
+3. **No writes anywhere.**
+
+### ⑦ `SELECT ... FROM "orders_demo$snapshots"` / `"orders_demo$files"`
+Same as ⑥, but Trino returns the metadata itself instead of reading Parquet. `$snapshots` comes from the snapshot list in `metadata.json`, and `$files` comes from the manifests.
+
+### ⑧ Time travel: `SELECT ... FOR VERSION AS OF <snapshot_id>`
+Same as ⑥, but Trino follows the **older** snapshot's manifest list. Those files still exist, because commits never delete or modify files.
+
+### Summary
+
+| Statement | SQLite (via iceberg-rest) | MinIO, written by iceberg-rest | MinIO, written by Trino |
+| --- | --- | --- | --- |
+| CREATE SCHEMA | insert namespace row | – | – |
+| DROP TABLE | delete table row | – | old files deleted (purge) |
+| CREATE TABLE | insert table row → `00000` | `00000.metadata.json` | – (only checks the location) |
+| INSERT / UPDATE | pointer moves (compare-and-swap) | new `metadata.json` | Parquet data/delete files, manifests, manifest list |
+| SELECT / `$files` / time travel | read pointer | – (reads `metadata.json`) | – (reads only) |
+
+**Rule of thumb:** iceberg-rest handles *metadata*, and only metadata. The heavy data traffic flows directly between the engine (Trino, and Spark from M2) and MinIO. That's why one small catalog can serve huge tables.
+
 ## 6. Stopping, restarting, resetting
 
 | Command | Effect |
