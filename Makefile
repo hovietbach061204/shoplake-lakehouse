@@ -1,4 +1,4 @@
-.PHONY: venv check data data-funnel explore up down reset ps logs trino m1-demo build landing bronze pyspark
+.PHONY: venv check data data-funnel explore up down reset ps logs trino m1-demo build landing bronze pyspark replay incremental m3-inspect compact
 
 # Which Python to use: the project's .venv if it exists, otherwise whatever
 # `python3` is active in your shell (e.g. an activated conda env).
@@ -55,3 +55,18 @@ bronze:          ## Run the PySpark job: landing CSVs -> iceberg.bronze.* tables
 
 pyspark:         ## Open an interactive PySpark shell (Iceberg catalog preconfigured)
 	docker compose exec spark pyspark
+
+# ---- M3: daily replay + incremental MERGE ----
+START ?= 2017-03-01
+DAYS  ?= 1
+replay:          ## Write daily change extracts to landing: make replay START=2017-03-01 DAYS=7
+	docker compose exec spark spark-submit spark/jobs/replay_orders.py --start $(START) --days $(DAYS)
+
+incremental:     ## Load landing days newer than the watermark (or one day: make incremental DATE=2017-03-02)
+	docker compose exec spark spark-submit spark/jobs/orders_incremental.py $(if $(DATE),--date $(DATE),)
+
+m3-inspect:      ## Trino queries: history vs current, CoW vs MoR files and snapshots
+	docker compose exec -T trino trino --output-format=ALIGNED < sql/m3_inspect.sql
+
+compact:         ## Compact the merge-on-read table (apply delete files, merge small files)
+	docker compose exec -T spark spark-sql -e "CALL iceberg.system.rewrite_data_files(table => 'bronze.orders_current_mor', options => map('delete-file-threshold', '1'))"

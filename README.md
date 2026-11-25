@@ -24,8 +24,8 @@ Spark and Trino share one copy of the data: each asks the REST catalog which met
 | --- | --- | --- | --- |
 | M0 | Machine setup, dataset download, first look at the data | Idempotency, grain, watermark candidates | done |
 | M1 | MinIO + REST catalog + Trino; first Iceberg table by hand | Iceberg metadata tree, snapshots, time travel | done ([guide](docs/M1-storage-catalog-trino.md)) |
-| M2 | PySpark: landing CSV to bronze Iceberg | DataFrames, partitions, bronze layer | in progress ([guide](docs/M2-spark-bronze.md)) |
-| M3 | Daily replay, incremental loads, `MERGE INTO` | Watermarks, CoW vs MoR, partition evolution | |
+| M2 | PySpark: landing CSV to bronze Iceberg | DataFrames, partitions, bronze layer | done ([guide](docs/M2-spark-bronze.md)) |
+| M3 | Daily replay, incremental loads, `MERGE INTO` | Watermarks, CoW vs MoR, partition evolution | in progress ([guide](docs/M3-incremental-merge.md)) |
 | M3b | Streaming: Kafka topics → Iceberg tables, the open-source version of Confluent Tableflow (Iceberg Kafka Connect sink + compaction) | Exactly-once commits, freshness vs small files, schema evolution, compaction | planned ([plan](docs/M3b-kafka-to-iceberg-plan.md)) |
 | M4 | dbt-trino silver layer with tests | Sources, `ref()`, data quality | |
 | M5 | Gold star schema, SCD2 customers, marts | Star schema, grain, SCD2 | |
@@ -66,6 +66,11 @@ make build     # build the Spark image (M2)
 make landing   # upload data/raw CSVs to the landing bucket
 make bronze    # PySpark: landing CSVs -> iceberg.bronze.* tables
 make pyspark   # interactive PySpark shell
+
+make replay START=2017-03-01 DAYS=7   # M3: daily change files into landing
+make incremental                      # load new days, MERGE into current tables
+make m3-inspect                       # compare history, CoW and MoR tables
+make compact                          # compact the merge-on-read table
 make down      # stop (data kept); make reset wipes all data
 ```
 
