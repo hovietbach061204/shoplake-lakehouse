@@ -79,4 +79,7 @@ make down      # stop (data kept); make reset wipes all data
 | MinIO console | http://localhost:9001 (admin / password) |
 | Trino web UI | http://localhost:8080 |
 | Iceberg REST catalog | http://localhost:8181/v1/namespaces |
-| Spark UI (while a job runs) | http://localhost:4040 |
+| PySpark shell UI (while the shell is open) | http://localhost:4040 |
+| Bronze ingestion UI (while ingestion runs) | http://localhost:4041 |
+| Spark Thrift Server UI (DataGrip queries) | http://localhost:4042 |
+| Spark History Server (completed applications) | http://localhost:18080 |

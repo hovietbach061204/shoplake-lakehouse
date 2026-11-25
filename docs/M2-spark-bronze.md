@@ -125,7 +125,13 @@ Loading 9 table(s) from s3a://landing/olist into iceberg.bronze:
 
 Load a single table: `docker compose exec spark spark-submit spark/jobs/bronze_ingest.py orders`
 
-While a job runs, the Spark UI is at http://localhost:4040 (jobs, stages, the SQL plan).
+While bronze ingestion runs, its jobs, stages and SQL plan are at http://localhost:4041.
+`make pyspark` has its own UI at http://localhost:4040. The same Spark container
+runs the Thrift Server for DataGrip at `jdbc:hive2://127.0.0.1:10000/bronze`
+with its monitoring UI at http://localhost:4042.
+After it finishes, open the [Spark History Server](http://localhost:18080), select
+`shoplake-bronze-ingest`, and open **Jobs**. Spark saves event logs in the
+`spark-events` Docker volume, which survives `docker compose down`.
 
 ### Step 3: query bronze from Trino
 ```bash

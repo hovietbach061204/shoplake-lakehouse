@@ -85,24 +85,48 @@ services:
       - ./infra/trino/catalog:/etc/trino/catalog:ro
     mem_limit: 3g     # the JVM sizes its heap from this limit
 
-  # --- Spark (PySpark), local mode: one container is driver + executors ---
-  # It idles until you submit a job:
-  #   docker compose exec spark spark-submit spark/jobs/bronze_ingest.py
+  # Thrift serves JDBC continuously. PySpark and bronze run on demand via exec.
   spark:
     build: ./spark                  # spark/Dockerfile = apache/spark + Iceberg/S3 jars
     image: shoplake-spark:4.1.4
     depends_on:
       - iceberg-rest
-    entrypoint: ["sleep", "infinity"]
+    init: true
+    entrypoint: ["/opt/spark/sbin/start-thriftserver.sh"]
+    command:
+      - --conf
+      - spark.ui.port=4042
+      - --driver-java-options
+      - -Dderby.system.home=/tmp/shoplake-thrift
+      - --hiveconf
+      - hive.server2.thrift.bind.host=0.0.0.0
     environment:
       <<: *s3-credentials
+      SPARK_NO_DAEMONIZE: "1"
     ports:
-      - "4040:4040"   # Spark UI, only while a job is running
+      - "127.0.0.1:4040:4040"     # PySpark shell UI
+      - "127.0.0.1:4041:4041"     # Bronze ingestion UI
+      - "127.0.0.1:4042:4042"     # Thrift Server UI
+      - "127.0.0.1:10000:10000"   # DataGrip JDBC
     volumes:
       - ./spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
       - ./spark/jobs:/opt/shoplake/spark/jobs:ro
-    mem_limit: 2500m
+      - spark-events:/opt/spark/work-dir
+    mem_limit: 4g
+
+  spark-history:
+    image: shoplake-spark:4.1.4
+    entrypoint: ["/opt/spark/sbin/start-history-server.sh"]
+    environment:
+      SPARK_NO_DAEMONIZE: "1"
+      SPARK_DAEMON_MEMORY: 512m
+      SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=file:/opt/spark/work-dir
+    ports:
+      - "127.0.0.1:18080:18080"
+    volumes:
+      - spark-events:/opt/spark/work-dir:ro
 
 volumes:
   minio-data:
   catalog-data:
+  spark-events:

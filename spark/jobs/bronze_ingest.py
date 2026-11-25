@@ -79,7 +79,11 @@ def load_table(spark, table, file_name):
 
 
 def main(selected):
-    spark = SparkSession.builder.appName("shoplake-bronze-ingest").getOrCreate()
+    spark = (
+        SparkSession.builder.appName("shoplake-bronze-ingest")
+        .config("spark.ui.port", "4041")
+        .getOrCreate()
+    )
     spark.sparkContext.setLogLevel("WARN")
 
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {NAMESPACE} "
